@@ -214,4 +214,3 @@ export async function write(config: Config) {
     await writeBatchToFile();
   }
 }
-
