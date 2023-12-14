@@ -214,3 +214,65 @@ export async function write(config: Config) {
     await writeBatchToFile();
   }
 }
+
+export async function autoScroll(page: Page) {
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      var totalHeight = 0;
+      var distance = 100;
+      var timer = setInterval(() => {
+        var scrollHeight = document.body.scrollHeight;
+        window.scrollBy(0, distance);
+        totalHeight += distance;
+
+        if (totalHeight >= scrollHeight) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 100);
+    });
+  });
+}
+
+if (process.env.NO_CRAWL !== "true") {
+  const crawler = new PlaywrightCrawler({
+    async requestHandler({ request, page, enqueueLinks, log, pushData }) {
+      try {
+        if (config.cookie) {
+          const cookie = {
+            name: config.cookie.name,
+            value: config.cookie.value,
+            url: request.loadedUrl, 
+          };
+          await page.context().addCookies([cookie]);
+        }
+
+        const title = await page.title();
+        log.info(`Crawling ${request.loadedUrl}...`);
+
+        await page.waitForSelector(config.selector, {
+          timeout: config.waitForSelectorTimeout,
+        });
+
+        await autoScroll(page);  
+
+        const html = await getPageHtml(page);
+        await pushData({ title, url: request.loadedUrl, html });
+
+        if (config.onVisitPage) {
+          await config.onVisitPage({ page, pushData });
+        }
+
+        await enqueueLinks({
+          globs: [config.match],
+        });
+      } catch (error) {
+        log.error(`Error crawling ${request.loadedUrl}: ${error}`);
+      }
+    },
+    maxRequestsPerCrawl: config.maxPagesToCrawl,
+    // headless: false,
+  });
+
+  await crawler.run([config.url]);
+}
